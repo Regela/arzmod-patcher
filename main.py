@@ -1101,7 +1101,7 @@ def arzmod_patch():
 		search_and_replace(src_path + "/com/arizona/launcher/MainEntrench$IncomingHandler.smali", r"\u0412\u044b\u0439\u0442\u0438", r"\u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0438\u0442\u044c")
 	
 		# FIREBASE PATCH + classes_arzmod/src/com/arzmod/radare/FirebaseAdd.java (back arz connection)
-		replace_code_between_lines(src_path + "/com/arizona/launcher/MessagingService.smali", "invoke-direct {p0}, Lcom/arizona/launcher/MessagingService;->getSettingsPreferences()Landroid/content/SharedPreferences;", "invoke-interface {v0}, Landroid/content/SharedPreferences$Editor;->apply()V", "")
+		replace_code_between_lines(src_path + "/com/arizona/launcher/MessagingService.smali", "invoke-static {v0}, Landroidx/preference/PreferenceManager;->getDefaultSharedPreferences(Landroid/content/Context;)Landroid/content/SharedPreferences;", "invoke-interface {v0}, Landroid/content/SharedPreferences$Editor;->apply()V", "")
 		set_xml_string("gcm_defaultSenderId", "982519605362")
 		set_xml_string("google_api_key", "AIzaSyAIav21gmzddU7GlZL-4oodtbAzkzclCmg")
 		set_xml_string("google_app_id", "1:982519605362:android:e9d9e2b84af6dd0601baeb")
@@ -1151,8 +1151,8 @@ def arzmod_patch():
 			.end method
 		""")
 		apply_function_to_files(search_and_replace, src_path + "/com/arizona/launcher", "Lcom/arizona/launcher/UpdateService;->getExternalFilesDir(Ljava/lang/String;)Ljava/io/File;", "Lcom/arizona/launcher/UpdateService;->getARZMODPatchedPath(Ljava/lang/String;)Ljava/io/File;", True)
-		replace_code_between_lines(src_path + "/com/arizona/launcher/UpdateService.smali", ".method private static final checkUpdate$lambda$1$lambda$0(Lorg/json/JSONObject;Ljava/lang/String;Ljava/lang/String;)Lorg/json/JSONArray;", ".end method", """
-			.method private static final checkUpdate$lambda$1$lambda$0(Lorg/json/JSONObject;Ljava/lang/String;Ljava/lang/String;)Lorg/json/JSONArray;
+		replace_code_between_lines(src_path + "/com/arizona/launcher/UpdateService.smali", ".method private static final checkUpdate$lambda$0$0(Lorg/json/JSONObject;Ljava/lang/String;Ljava/lang/String;)Lorg/json/JSONArray;", ".end method", """
+			.method private static final checkUpdate$lambda$0$0(Lorg/json/JSONObject;Ljava/lang/String;Ljava/lang/String;)Lorg/json/JSONArray;
 				.locals 1
 				const-string v2, "data"
 				invoke-virtual {p0, v2}, Lorg/json/JSONObject;->getJSONObject(Ljava/lang/String;)Lorg/json/JSONObject;
@@ -1459,7 +1459,7 @@ def arzmod_patch():
 
 	# GAME PATCHES + classes_arzmod/src/com/arzmod/radare/GamePatches.java
 	search_and_replace(ui_path + "/ru/mrlargha/commonui/core/SAMPUIElement.smali", ".method protected final getTargetActivity", ".method public final getTargetActivity")
-	search_and_replace(ui_path + "/ru/mrlargha/commonui/core/SAMPUIElement.smali", ".method protected getNotifier", ".method public final getNotifier")
+	search_and_replace(ui_path + "/ru/mrlargha/commonui/core/SAMPUIElement.smali", ".method protected getNotifier", ".method public getNotifier")
 	insert_smali_code_after_line(ui_path + "/ru/mrlargha/commonui/elements/hud/presentation/Hud.smali", ".method public setVisibility", ".locals", """
 		invoke-static {p0, p1}, Lcom/arzmod/radare/GamePatches;->isHudVisible(Lru/mrlargha/commonui/elements/hud/presentation/Hud;Z)Z
 		move-result p1

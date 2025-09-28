@@ -51,6 +51,7 @@ import java.lang.reflect.Method;
 import java.lang.NoSuchFieldException;
 import com.arzmod.radare.DebugOverlay;
 import com.arzmod.radare.GamePatches;
+import com.arizona.launcher.model.settings.SettingsConstants;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -421,17 +422,18 @@ public class InitGamePatch {
 
         
             boolean isMonetloaderWork = SettingsPatch.getSettingsKeyValue(SettingsPatch.MONETLOADER_WORK);
-            boolean isShowFps = SettingsPatch.getSettingsKeyValue(SettingsPatch.SHOW_FPS);
+            boolean isShowFps = SettingsPatch.getSettingsKeyValue(SettingsConstants.SHOW_FPS);
             boolean isNewKeyboard = SettingsPatch.getSettingsKeyValue(SettingsPatch.IS_NEW_KEYBOARD);
             boolean isNewInterface = SettingsPatch.getSettingsKeyValue(SettingsPatch.IS_NEW_INTERFACE);
-            boolean isStreamerMode = SettingsPatch.getSettingsKeyValue(SettingsPatch.STREAMER_MODE);
+            boolean isStreamerMode = SettingsPatch.getSettingsKeyValue(SettingsConstants.STREAMER_MODE);
+            boolean isAmbientSounds = SettingsPatch.getSettingsKeyValue(SettingsConstants.AMBIENT_SOUNDS);
             String deviceInfo = Build.MANUFACTURER + ":" + Build.MODEL + ":" + getUniqueID() + ":notify_on";
             int lastUIElementID = UIElementID.getLastUIElementID();
 
             SharedPreferences sharedPreferences = SettingsPatch.getSettingsPreferences();
-            String notifyHash = sharedPreferences.getString(SettingsPatch.TOKEN, getUniqueID());
+            String notifyHash = sharedPreferences.getString(SettingsConstants.TOKEN, getUniqueID());
 
-            GTASA.InitSetting(isNewInterface, isShowFps ? 1 : 0, isNewKeyboard, isStreamerMode, "(" + CONNECT_TAG + ") 2.1 - " + getLauncherVersion(), lastUIElementID, deviceInfo, notifyHash, FirebaseConfigHelper.INSTANCE.getChannelsState());
+            GTASA.InitSetting(isNewInterface, isShowFps ? 1 : 0, isNewKeyboard, isStreamerMode, "(" + CONNECT_TAG + ") 2.1 - " + getLauncherVersion(), lastUIElementID, deviceInfo, notifyHash, FirebaseConfigHelper.INSTANCE.getChannelsState(), isAmbientSounds);
             
             FirebaseCrashlytics.getInstance().setUserId(getUniqueID());
         } catch (LinkageError e) {

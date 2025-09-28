@@ -687,17 +687,6 @@ public class SettingsPatch {
     private static Activity activity;
     private static List<AbstractSetting> settingsList;
 
-    public static final String CHAT_FONT_SIZE = "chat_fontsize";
-    public static final String CHAT_PAGE_SIZE = "chat_pagesize";
-    public static final String CHAT_PRINT_TIMESTAMP = "chat_print_timestamp";
-    public static final String IS_HEAD_MOVING = "head_moving";
-    public static final String NICKNAME = "nickname";
-    public static final String SHOW_FPS = "show_fps";
-    public static final String STREAMER_MODE = "streamer_mode";
-    public static final String TOKEN = "token";
-    public static final String USE_FULLSCREEN = "use_fullscreen";
-    // maybe arz will delete the files of the old launcher (ya dolbaeb prosta)
-
     public static final String MONETLOADER_WORK = "monetloader_work";
     public static final String MODLOADER_STATE = "modloader_state";
     public static final String GAME_VERSION = "game_version";
