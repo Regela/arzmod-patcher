@@ -1619,6 +1619,8 @@ def install_game_libraries():
 					else: input(f"Паттерн {name} ({pattern_value_clean}) не найден в {libsamppath}")
 
 	if usearm64:
+		if os.path.exists(app_dir + "/lib/armeabi-v7a"):
+			shutil.rmtree(app_dir + "/lib/armeabi-v7a")
 		add_asset(f"{working_dir}/resource/profile.json")
 		add_patched_lib("libluajit-5.1.so", "arm64-v8a")
 		add_patched_lib("libmonetloader.so", "arm64-v8a")

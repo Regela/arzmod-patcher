@@ -7,10 +7,10 @@
 #include <string>
 #include <jni.h>
 
-char libName[256] = {0};
+uintptr_t libSize = 0;
 uintptr_t libHandle = 0;
 
-char raknetName[256] = {0};
+uintptr_t raknetSize = 0;
 uintptr_t raknetHandle = 0;
 
 JavaVM* g_jvm = nullptr;
@@ -66,19 +66,19 @@ void init() {
             }
             LOGI("Found library by prefix at address: %x with name: %s", libInfo.address, libInfo.name);
             libHandle = libInfo.address;
-            strncpy(libName, libInfo.name, sizeof(libName) - 1);
-            InitHookStuff(libName);
+            libSize = GetLibrarySize(libInfo.name);
+            InitHookStuff(libInfo.name);
         }
         else
         {
-            strncpy(libName, HOOK_LIBRARY, sizeof(libName) - 1);
-            InitHookStuff(libName);
+            libSize = GetLibrarySize(HOOK_LIBRARY);
+            InitHookStuff(HOOK_LIBRARY);
         }
 
         LOGI("ARZMOD Native Init (%s) (samp_base: %x) | x%i | Build time: %s", g_package, libHandle, sizeof(void*) * 8, __DATE__ " " __TIME__);
     #elif defined __aarch64__
-        strncpy(libName, HOOK_LIBRARY, sizeof(libName) - 1);
-        strncpy(raknetName, HOOK_RAKNET, sizeof(raknetName) - 1);
+        libSize = GetLibrarySize(HOOK_LIBRARY);
+        raknetSize = GetLibrarySize(HOOK_RAKNET);
         libHandle = FindLibrary(HOOK_LIBRARY);
         raknetHandle = FindLibrary(HOOK_RAKNET);
         LOGI("ARZMOD Native Init (%s) (samp_base: %lx | raknet_base: %lx) | x%lu | Build time: %s", g_package, libHandle, raknetHandle, sizeof(void*) * 8, __DATE__ " " __TIME__);

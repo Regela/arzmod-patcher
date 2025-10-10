@@ -151,7 +151,7 @@ extern "C" {
 
         if(!version_data.is_patched)
         {
-            int result = PatternHook(VERSION_RENDER_PATTERN, libHandle, GetLibrarySize(libName), reinterpret_cast<uintptr_t>(VersionRendererHook), reinterpret_cast<uintptr_t*>(&VersionRenderer), "VersionRendererHook");
+            int result = PatternHook(VERSION_RENDER_PATTERN, libHandle, libSize, reinterpret_cast<uintptr_t>(VersionRendererHook), reinterpret_cast<uintptr_t*>(&VersionRenderer), "VersionRendererHook");
             if(result) {
                 version_data.is_patched = true;
             } else {
@@ -167,7 +167,7 @@ extern "C" {
         chat_data.is_set = true;
 
         if(!chat_data.is_patched) {
-            int result = PatternHook(CHAT_RENDER_PATTERN, libHandle, GetLibrarySize(libName), reinterpret_cast<uintptr_t>(ChatRendererHook), reinterpret_cast<uintptr_t*>(&ChatRenderer), "ChatRendererHook");
+            int result = PatternHook(CHAT_RENDER_PATTERN, libHandle, libSize, reinterpret_cast<uintptr_t>(ChatRendererHook), reinterpret_cast<uintptr_t*>(&ChatRenderer), "ChatRendererHook");
             if(result) {
                 chat_data.is_patched = true;
             } else {
@@ -183,14 +183,14 @@ extern "C" {
         hud_data.radar_type = radar_type;
         
         if(!hud_data.is_patched) {
-            int result = PatternHook(INSTALL_HUD_PATTERN, libHandle, GetLibrarySize(libName), reinterpret_cast<uintptr_t>(InstallHudHook), reinterpret_cast<uintptr_t*>(&InstallHud), "InstallHudHook");
+            int result = PatternHook(INSTALL_HUD_PATTERN, libHandle, libSize, reinterpret_cast<uintptr_t>(InstallHudHook), reinterpret_cast<uintptr_t*>(&InstallHud), "InstallHudHook");
             if(result) {
                 hud_data.is_patched = true;
             } else {
                 hud_data.is_patched = true;
             }
             #ifdef __arm__
-            result = PatternHook(INSTALL_RADAR_PATTERN, libHandle, GetLibrarySize(libName), reinterpret_cast<uintptr_t>(InstallRadarHook), reinterpret_cast<uintptr_t*>(&InstallRadar), "InstallRadarHook");
+            result = PatternHook(INSTALL_RADAR_PATTERN, libHandle, libSize, reinterpret_cast<uintptr_t>(InstallRadarHook), reinterpret_cast<uintptr_t*>(&InstallRadar), "InstallRadarHook");
             if(result) {
                 hud_data.is_patched = true;
             } else {

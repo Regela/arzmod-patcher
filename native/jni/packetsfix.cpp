@@ -87,7 +87,7 @@ signed int SocketLayer__SendTo_Hook([[maybe_unused]] int socket, int sockfd, int
 extern "C" {
     JNIEXPORT void JNICALL
     Java_com_arzmod_radare_InitGamePatch_installPacketsFix(JNIEnv* env, jobject thiz) {
-        int result = PatternHook(SOCKET_LAYER_SENDTO_PATTERN, libHandle, GetLibrarySize(libName), reinterpret_cast<uintptr_t>(SocketLayer__SendTo_Hook), reinterpret_cast<uintptr_t*>(&SocketLayer__SendTo), "SocketLayer__SendTo_Hook");
+        int result = PatternHook(SOCKET_LAYER_SENDTO_PATTERN, libHandle, libSize, reinterpret_cast<uintptr_t>(SocketLayer__SendTo_Hook), reinterpret_cast<uintptr_t*>(&SocketLayer__SendTo), "SocketLayer__SendTo_Hook");
         if(!result) {
             pid_t pid = getpid();
             kill(pid, SIGKILL);

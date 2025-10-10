@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <cstdarg>
 #include <exception>
+#include <fstream>
 #include "addresses.h"
 #include "logging.h"
 
@@ -172,4 +173,55 @@ LibraryInfo FindLibraryByPrefix(const char* library_prefix)
     return result;
 }
 
+bool getLibraryFromAddress(void* address, std::string& outPath, uintptr_t* outBase) {
+    if (address == nullptr) return false;
 
+    Dl_info info{};
+    if (dladdr(address, &info) != 0 && info.dli_fname != nullptr) {
+        outPath = info.dli_fname;
+        if (outBase) *outBase = reinterpret_cast<uintptr_t>(info.dli_fbase);
+        return true;
+    }
+
+    std::ifstream maps("/proc/self/maps");
+    if (!maps.is_open()) return false;
+
+    const uintptr_t target = reinterpret_cast<uintptr_t>(address);
+    std::string line;
+    while (std::getline(maps, line)) {
+        const char* c = line.c_str();
+        char* endPtr = nullptr;
+        uintptr_t start = strtoull(c, &endPtr, 16);
+        if (endPtr == nullptr || *endPtr != '-') continue;
+        uintptr_t end = strtoull(endPtr + 1, &endPtr, 16);
+        if (endPtr == nullptr) continue;
+        if (target < start || target >= end) continue;
+
+        const char* pathStart = strchr(c, '/');
+        if (pathStart != nullptr) {
+            outPath.assign(pathStart);
+        } else {
+            outPath.clear();
+        }
+        if (outBase) *outBase = start;
+        return true;
+    }
+    return false;
+}
+
+std::string getLibraryNameOnly(const std::string& fullPath) {
+    if (fullPath.empty()) return std::string();
+    size_t pos = fullPath.find_last_of('/');
+    return (pos == std::string::npos) ? fullPath : fullPath.substr(pos + 1);
+}
+
+void logLibraryForAddress(const char* tag, void* address) {
+    std::string path;
+    uintptr_t base = 0;
+    if (getLibraryFromAddress(address, path, &base)) {
+        uintptr_t off = reinterpret_cast<uintptr_t>(address) - base;
+        LOGI("%s: %p -> %s (base=%p, off=0x%zx)", tag, address, path.c_str(), (void*)base, (size_t)off);
+    } else {
+        LOGI("%s: %p -> <unknown>", tag, address);
+    }
+}

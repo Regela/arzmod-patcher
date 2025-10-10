@@ -3,10 +3,10 @@
 #include <cstdint>
 #include <jni.h>
 
-extern char libName[256];
+extern uintptr_t libSize;
 extern uintptr_t libHandle;
 
-extern char raknetName[256];
+extern uintptr_t raknetSize;
 extern uintptr_t raknetHandle;
 
 extern JavaVM* g_jvm;

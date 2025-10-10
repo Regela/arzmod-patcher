@@ -175,6 +175,31 @@ public class InitGamePatch {
         return false;
     }
 
+    public static long getLibraryBase(String libName) {
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader("/proc/self/maps"));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("lib" + libName + ".so")) {
+                    String[] parts = line.split("\\s+");
+                    if (parts.length > 0) {
+                        String addressRange = parts[0];
+                        String[] addresses = addressRange.split("-");
+                        if (addresses.length == 2) {
+                            long baseAddress = Long.parseLong(addresses[0], 16);
+                            reader.close();
+                            return baseAddress;
+                        }
+                    }
+                }
+            }
+            reader.close();
+        } catch (Exception e) {
+            Log.e("arzmod-initgame-module", "Error getting library base: " + e.getMessage());
+        }
+        return 0;
+    }
+
     public static void loadLib(String libName) {
         context = AppContext.getContext();
         if (context == null) {
@@ -191,7 +216,14 @@ public class InitGamePatch {
         // }
 
         Log.d("arzmod-initgame-module", "Loading library " + libName + " from path: " + fullLibPath);
-        GTASAInternal.loadLibraryFromPath(fullLibPath);   
+        GTASAInternal.loadLibraryFromPath(fullLibPath);
+        
+        long baseAddress = getLibraryBase(libName);
+        if (baseAddress != 0) {
+            Log.d("arzmod-initgame-module", "Library " + libName + " loaded at base address: 0x" + Long.toHexString(baseAddress));
+        } else {
+            Log.w("arzmod-initgame-module", "Could not get base address for library " + libName);
+        }
     }
 
     public static void firstTimePatches(Activity activity) {
@@ -389,6 +421,15 @@ public class InitGamePatch {
                 if(chatPosition.enabled) InitGamePatch.setChatPosition(chatPosition.x, chatPosition.y);
             }
             if(SettingsPatch.getSettingsKeyValue(SettingsPatch.IS_VERSION_HIDED)) InitGamePatch.setVersionString("");
+        }
+        else
+        {
+            AppContext.getGTASAActivity(new AppContext.GTASAActivityCallback() {
+                @Override
+                public void onResult(Activity activity) {
+                    GamePatches.installTouchForwarder(activity);
+                }
+            });            
         }
         if(isCustomServer())
         {

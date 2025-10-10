@@ -40,3 +40,6 @@ uintptr_t FindLibrary(const char* library);
 LibraryInfo FindLibraryByPrefix(const char* library_prefix);
 
 std::string GetFunctionPattern(void* func_addr, size_t size);
+bool getLibraryFromAddress(void* address, std::string& outPath, uintptr_t* outBase);
+std::string getLibraryNameOnly(const std::string& fullPath);
+void logLibraryForAddress(const char* tag, void* address);
