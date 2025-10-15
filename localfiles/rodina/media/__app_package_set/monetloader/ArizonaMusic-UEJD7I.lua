@@ -125,21 +125,6 @@ function getVolumeConfig(type)
     else return 0 end
 end 
 
-local playerId = nil
-
-require("lib.samp.events").onInitGame = function(id)
-    debugMessage("setFixedId = "..id)
-    playerId = id
-end
-
-function sampGetCharHandleBySampPlayerId_hook(sampId)
-    if playerId ~= nil and playerId == sampId then return true, PLAYER_PED
-    else return sampGetCharHandleBySampPlayerId_orig(sampId) end
-end
-
-sampGetCharHandleBySampPlayerId_orig = sampGetCharHandleBySampPlayerId
-sampGetCharHandleBySampPlayerId = sampGetCharHandleBySampPlayerId_hook
-
 function main()
     if not doesDirectoryExist(cacheDir) then createDirectory(cacheDir)
     else deleteFiles(cacheDir) end
