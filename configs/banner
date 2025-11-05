@@ -1,8 +1,9 @@
 {
-    "id": "arzmodoptimizationupdate",
-    "width": 868,
-    "height": 162,
-    "imageUrl": "https://raw.githubusercontent.com/idmkdev/arzmod-patcher/refs/heads/main/configs/images/arzmodoptimizationupdate.jpg",
-    "url": "https://t.me/CleoArizona/236",
+    "id": "novupdate",
+    "width": 626,
+    "height": 612,
+    "title": "[changelog] Обновление мода и игры до версии v16.6.7 👇",
+    "imageUrl": "https://raw.githubusercontent.com/idmkdev/arzmod-patcher/refs/heads/main/configs/images/novupdate.png",
+    "url": "https://t.me/CleoArizona/267",
     "isActive": true
 }
