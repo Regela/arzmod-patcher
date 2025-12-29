@@ -43,6 +43,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import org.json.JSONObject;
 import org.json.JSONException;
+import org.json.JSONArray;
 import java.io.IOException;
 import com.miami.game.feature.download.dialog.ui.connection.ConnectionHolder;
 import com.arizona.game.GTASA;
@@ -613,7 +614,7 @@ public class ApplicationStart {
             @Override
             public void run() {
                 try {
-                    String gitUpdateUrl = "https://api.github.com/repos/" + BuildConfig.GIT_OWNER + "/" + BuildConfig.GIT_REPO + "/releases/latest";
+                    String gitUpdateUrl = "https://api.github.com/repos/" + BuildConfig.GIT_OWNER + "/" + BuildConfig.GIT_REPO + "/releases";
 
                     if (gitUpdateUrl != null && !gitUpdateUrl.isEmpty()) {
                         URL url = new URL(gitUpdateUrl);
@@ -627,7 +628,9 @@ public class ApplicationStart {
                         String jsonResponse = new java.util.Scanner(input).useDelimiter("\\A").next();
                         input.close();
 
-                        JSONObject json = new JSONObject(jsonResponse);
+                        JSONObject json = jsonResponse.startsWith("[") ? 
+                            new JSONArray(jsonResponse).getJSONObject(0) : 
+                            new JSONObject(jsonResponse);
                         String latestVersion = json.getString("tag_name").replace("v", "");
                         final String releaseUrl = json.getString("html_url");
                         boolean isPrerelease = json.optBoolean("prerelease", false);
@@ -637,7 +640,7 @@ public class ApplicationStart {
 
                         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
                         String lastShownVersion = prefs.getString("last_shown_prerelease", "");
-                        boolean hasShownPrerelease = !lastShownVersion.isEmpty();
+                        boolean hasShownPrerelease = !lastShownVersion.isEmpty() && lastShownVersion.equals(latestVersion);
 
                         if (!isPrerelease && hasShownPrerelease) {
                             prefs.edit().remove("last_shown_prerelease").apply();
@@ -669,11 +672,12 @@ public class ApplicationStart {
                                     builder.setTitle("Доступно обновление");
 
                                     StringBuilder message = new StringBuilder();
-                                    message.append("Доступна новая версия лаунчера: ").append(newVersion);
+                                    if (finalIsPrerelease) message.append("Доступно автоматическое обновление лаунчера: ").append(newVersion);
+                                    else message.append("Доступна новая версия лаунчера: ").append(newVersion);
                                     if (newVersion < currentVersion) {
                                         message.append("\n\nТекущая версия была удалена. Рекомендуется вернуться на старую версию. (ничего удалять/переустанавливать не надо, просто установить новый APK)");
                                     } else {
-                                        if (finalIsPrerelease) message.append("\n\nВерсия не отмечена как стабильная (не протестирована), а значит может содержать баги или вовсе не работать. Если вы очень хотите обновиться - попробуйте, на старую версию можно будет откатиться в любое время, установив с прошлого релиза. (обновлением без переустановки!)");
+                                        if (finalIsPrerelease) message.append("\n\nВерсия не отмечена как стабильная (не протестирована, автоматическое обновление), а значит может содержать баги или вовсе не работать. Если вы очень хотите обновиться - попробуйте, на старую версию можно будет откатиться в любое время, установив с прошлого релиза. (обновлением без переустановки!)");
                                         else message.append("\n\nРекомендуется обновить приложение для корректной работы.");
                                     }
                                     builder.setMessage(message.toString());
