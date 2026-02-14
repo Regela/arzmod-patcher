@@ -35,46 +35,74 @@ std::string GetFunctionPattern(void* func_addr, size_t size) {
     return pattern;
 }
 
-void* FindPattern(const std::string& pattern_str, uintptr_t start, size_t length) {
-    std::vector<uint8_t> pattern_bytes;
-    std::vector<bool> mask;
-    
-    std::string pattern = pattern_str;
-    pattern.erase(std::remove(pattern.begin(), pattern.end(), ' '), pattern.end());
-    
-    for (size_t i = 0; i < pattern.length(); ) {
-        if (i + 1 < pattern.length() && pattern[i] == '?' && pattern[i + 1] == '?') {
-            pattern_bytes.push_back(0);
-            mask.push_back(false);
+void* FindPattern(const std::string& pattern_str, uintptr_t start, size_t length)
+{
+    std::vector<uint8_t> bytes;
+    std::vector<uint8_t> mask;
+    bytes.reserve(pattern_str.size() / 2);
+    mask.reserve(pattern_str.size() / 2);
+
+    for (size_t i = 0; i < pattern_str.size(); ) {
+        if (pattern_str[i] == ' ') {
+            ++i;
+            continue;
+        }
+
+        if (i + 1 < pattern_str.size() &&
+            pattern_str[i] == '?' &&
+            pattern_str[i + 1] == '?')
+        {
+            bytes.push_back(0);
+            mask.push_back(0);
             i += 2;
-        } else if (i + 1 < pattern.length()) {
-            std::string byte_str = pattern.substr(i, 2);
-            pattern_bytes.push_back(static_cast<uint8_t>(std::stoi(byte_str, nullptr, 16)));
-            mask.push_back(true);
+        }
+        else {
+            uint8_t byte =
+                (uint8_t)std::strtoul(pattern_str.substr(i, 2).c_str(), nullptr, 16);
+            bytes.push_back(byte);
+            mask.push_back(1);
             i += 2;
-        } else {
-            return nullptr;
         }
     }
-    
-    const char* memory = static_cast<const char*>((void*)start);
-    size_t pattern_len = pattern_bytes.size();
-    
-    for (size_t i = 0; i <= length - pattern_len; i++) {
+
+    const size_t pat_len = bytes.size();
+    if (pat_len == 0 || pat_len > length)
+        return nullptr;
+
+    const uint8_t* mem = reinterpret_cast<const uint8_t*>(start);
+
+    size_t anchor = SIZE_MAX;
+    uint8_t anchor_byte = 0;
+
+    for (size_t i = 0; i < pat_len; ++i) {
+        if (mask[i]) {
+            anchor = i;
+            anchor_byte = bytes[i];
+            break;
+        }
+    }
+
+    if (anchor == SIZE_MAX)
+        return (void*)mem;
+
+    const size_t scan_end = length - pat_len;
+    for (size_t i = 0; i <= scan_end; ++i) {
+        if (mem[i + anchor] != anchor_byte)
+            continue;
         bool found = true;
-        for (size_t j = 0; j < pattern_len; j++) {
-            if (mask[j] && memory[i + j] != pattern_bytes[j]) {
+        for (size_t j = 0; j < pat_len; ++j) {
+            if (mask[j] && mem[i + j] != bytes[j]) {
                 found = false;
                 break;
             }
         }
-        if (found) {
-            return const_cast<void*>(reinterpret_cast<const void*>(memory + i));
-        }
+        if (found)
+            return (void*)(mem + i);
     }
-    
+
     return nullptr;
 }
+
 
 uintptr_t FindLibrary(const char* library)
 {

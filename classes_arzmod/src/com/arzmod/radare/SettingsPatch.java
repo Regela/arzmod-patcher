@@ -207,6 +207,11 @@ public class SettingsPatch {
             return defaultValue;
         }
 
+        public String getCurrentValueText() {
+            Integer currentValue = getCurrentValue();
+            return values.getOrDefault(currentValue, String.valueOf(currentValue));
+        }
+
         @Override
         public View createView(Context context) {
             LinearLayout layout = new LinearLayout(context);
@@ -751,7 +756,7 @@ public class SettingsPatch {
             settingsList.add(new SelectableValueSetting("Загрузчик модов", "Альтернативное название - ModLoader", MODLOADER_STATE, 0, MapsKt.mapOf(TuplesKt.to(0, "Выкл"), TuplesKt.to(1, "Текстуры"), TuplesKt.to(2, "Вкл")), sharedPreferences));
             settingsList.add(new SelectableValueSetting("Версия игры", "Если вы испытываете проблемы на текущей версии игры - выберите другую.\nНекоторые функции, такие как Скрытие строки версии и Позиция чата могут не работать на старых версиях", GAME_VERSION, 0, GameVersions.getVersions(), sharedPreferences));
         }
-        settingsList.add(new BooleanSetting("Оставить разработчика мода без еды", "При включении функции вы не увидите баннер-рекламу сверху. (Для полного скрытия еще и баннера слева можно перейти на offline версию - https://github.com/idmkdev/arzmod-patcher/releases/latest там нет никакой принудительной рекламы от ARZMOD)", IS_DEV_HUNGRY, BuildConfig.GIT_BUILD, sharedPreferences));
+        settingsList.add(new BooleanSetting("Оставить разработчика мода без еды", "При включении функции вы не увидите баннер-рекламу сверху. (Для полного скрытия еще и баннера слева можно перейти на offline версию - https://github.com/idmkdev/arzmod-patcher/releases/latest там нет никакой принудительной рекламы от ARZMOD)", IS_DEV_HUNGRY, false, sharedPreferences));
         return settingsList;
     }
 
@@ -1133,6 +1138,56 @@ public class SettingsPatch {
         }
 
         return PreferenceManager.getDefaultSharedPreferences(context).getInt(key, 0);
+    }
+
+    public static void dumpAllSettingsKeys() {
+        context = AppContext.getContext();
+        if (context == null) {
+            Log.e("arzmod-settings-module", "Context is null (dumpAllSettingsKeys)");
+            return;
+        }
+
+        if (settingsList == null) {
+            SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+            settingsList = getSettingsList(sharedPreferences);
+        }
+
+        if (settingsList != null) {
+            Log.d("arzmod-settings-module", "User settings:");
+            Log.d("arzmod-settings-module", "+----------------------+----------------------+-----------------+----------------+");
+            Log.d("arzmod-settings-module", "| Key                  | Title                | Type            | Value          |");
+            Log.d("arzmod-settings-module", "+----------------------+----------------------+-----------------+----------------+");
+            
+            for (AbstractSetting setting : settingsList) {
+                String key = setting.getSettingKey();
+                String title = setting.getTitle();
+                Object value = setting.getCurrentValue();
+                String type = setting.getClass().getSimpleName();
+                
+                String shortKey = key.length() > 20 ? key.substring(0, 17) + "..." : key;
+                String shortTitle = title.length() > 20 ? title.substring(0, 17) + "..." : title;
+                String shortType = type.length() > 15 ? type.substring(0, 12) + "..." : type;
+                
+                String displayValue;
+                if (setting instanceof SelectableValueSetting) {
+                    SelectableValueSetting selectableSetting = (SelectableValueSetting) setting;
+                    displayValue = selectableSetting.getCurrentValueText() + " (" + value + ")";
+                } else {
+                    displayValue = String.valueOf(value);
+                }
+                
+                if (displayValue.length() > 14) {
+                    displayValue = displayValue.substring(0, 11) + "...";
+                }
+                
+                String tableRow = String.format("| %-20s | %-20s | %-15s | %-14s |", shortKey, shortTitle, shortType, displayValue);
+                Log.d("arzmod-settings-module", tableRow);
+            }
+            
+            Log.d("arzmod-settings-module", "+----------------------+----------------------+-----------------+----------------+");
+        } else {
+            Log.e("arzmod-settings-module", "User settings: list is null");
+        }
     }
 
     public static void shareLogs() {

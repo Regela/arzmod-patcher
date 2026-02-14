@@ -396,13 +396,6 @@ public class InitGamePatch {
     public static void loadNativeMod(Activity targetActivity)
     {
         loadLib("arzmod");
-        // if (targetActivity != null) { // hueta
-        //     try {
-        //         InitGamePatch.setActivity(targetActivity);
-        //     } catch (LinkageError e) {
-        //         Log.w("arzmod-initgame-module", "Unable to call native method setActivity", e);
-        //     }
-        // }
 
         context = AppContext.getContext();
         if (context == null) {
@@ -465,6 +458,7 @@ public class InitGamePatch {
             GTASA.InitSetting(isNewInterface, isShowFps ? 1 : 0, isNewKeyboard, isStreamerMode, "(" + CONNECT_TAG + ") 2.1 - " + getLauncherVersion(), lastUIElementID, deviceInfo, notifyHash, FirebaseConfigHelper.INSTANCE.getChannelsState(), isAmbientSounds);
             
             FirebaseCrashlytics.getInstance().setUserId(getUniqueID());
+            SettingsPatch.dumpAllSettingsKeys();
         } catch (LinkageError e) {
             Log.w("arzmod-initgame-module", "Unable to call native method InitSetting", e);
         }

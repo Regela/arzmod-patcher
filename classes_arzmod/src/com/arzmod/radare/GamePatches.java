@@ -36,6 +36,17 @@ public class GamePatches {
         return isDefaultHud;
     }
 
+    public static boolean isNotified = false;
+    public static boolean notifyVisible()
+    {
+        if(SettingsPatch.getSettingsKeyValue(SettingsPatch.IS_UNITY_ELEMENTS) && SettingsPatch.getSettingsKeyInt(SettingsPatch.HUD_TYPE) != 3) {
+            if(isNotified) return false;
+            isNotified = true;
+            return true;
+        }
+        return true;
+    }
+
     public static void updateHudShield(Hud hud)
     {
         if(InitGamePatch.isCustomServer())

@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <cstdarg>
 #include <exception>
+#include <chrono>
 #include "logging.h"
 #include "armhook.h"
 
@@ -180,7 +181,12 @@ int PatternHook(const std::string& pattern, uintptr_t start, size_t length, uint
         if (tag) LOGD("[%d] Try to find pattern %s for %s", bit, pattern_str.c_str(), tag);
         else LOGD("[%d] Try to find pattern %s", bit, pattern_str.c_str());
     #endif
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
     void* func_addr = FindPattern(pattern, start, length);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    
     if(func_addr) {
         if(isDobbyUsed) {
             DobbyHook(reinterpret_cast<void*>(func_addr), reinterpret_cast<void*>(func), reinterpret_cast<void**>(orig));
@@ -192,12 +198,12 @@ int PatternHook(const std::string& pattern, uintptr_t start, size_t length, uint
         
         if(tag) {
             #ifdef RELEASE_BUILD
-                LOGI("[%d] Hooks installed successfully (%s)", bit, tag);
+                LOGI("[%d] Hooks installed successfully (%s), pattern found in %lld μs", bit, tag, duration.count());
             #else
                 #ifdef __arm__
-                    LOGI("[%d] Hooks installed successfully (%s), address: %x (static %x)", bit, tag, (uintptr_t)func_addr, (uintptr_t)func_addr - (uintptr_t)start);
+                    LOGI("[%d] Hooks installed successfully (%s), address: %x (static %x), pattern found in %lld μs", bit, tag, (uintptr_t)func_addr, (uintptr_t)func_addr - (uintptr_t)start, duration.count());
                 #elif defined __aarch64__
-                    LOGI("[%d] Hooks installed successfully (%s), address: %lx (static %lx)", bit, tag, (uintptr_t)func_addr, (uintptr_t)func_addr - (uintptr_t)start);
+                    LOGI("[%d] Hooks installed successfully (%s), address: %lx (static %lx), pattern found in %lld μs", bit, tag, (uintptr_t)func_addr, (uintptr_t)func_addr - (uintptr_t)start, duration.count());
                 #endif
             #endif
         }
@@ -205,7 +211,7 @@ int PatternHook(const std::string& pattern, uintptr_t start, size_t length, uint
     }
     else {
         if(tag) {
-            LOGE("[%d] Can't find offset from pattern %s (%s)", bit, pattern_str.c_str(), tag);
+            LOGE("[%d] Can't find offset from pattern %s (%s), search time: %lld μs", bit, pattern_str.c_str(), tag, duration.count());
         }
         return 0;
     }

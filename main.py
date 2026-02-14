@@ -388,39 +388,60 @@ def delete_lines(file_path, substring):
 		print("-------------------------------------------")
 		exitWithError("При удалении строк произошла ошибка")
 
+def search_and_replace(file_path, search_pattern, replacement_string, skip_found=None, use_regex=False, replace_all=True, flags=0):
+    try:
+        if not os.path.exists(file_path):
+            exitWithError(f"Файл не найден {file_path} (search_and_replace)")
 
-def search_and_replace(file_path, search_string, replacement_string, skip_found=None):
-	try:
-		if not os.path.exists(file_path):
-			exitWithError(f"Файл не найден {file_path} (search_and_replace)")
-		with open(file_path, 'r') as file:
-			lines = file.readlines()
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
 
-		found = any(search_string in line for line in lines)
-		replacement_count = 0
+        replacement_count = 0
 
-		if found:
-			with open(file_path, 'w') as file:
-				for line in lines:
-					if search_string in line:
-						new_line = line.replace(search_string, replacement_string)
-						replacement_count += 1
-					else:
-						new_line = line
-					file.write(new_line)
-			print(f"Строка заменена в файле {file_path}. Количество замен: {replacement_count}")
-			return True
-		elif skip_found is None:
-			print("-------------------DEBUG-------------------")
-			print("file_path:", file_path)
-			print("search_string:", search_string)
-			print("Строки для замены не найдено")
-			print("-------------------------------------------")
-			exitWithError("Строки для замены не найдено")
-		else:
-			return None
-	except (UnicodeDecodeError, FileNotFoundError):
-		return None
+        if use_regex:
+            pattern = re.compile(search_pattern, flags)
+
+            if not pattern.search(content):
+                if skip_found is None:
+                    print("-------------------DEBUG-------------------")
+                    print("file_path:", file_path)
+                    print("search_pattern:", search_pattern)
+                    print("Строки для замены не найдено")
+                    print("-------------------------------------------")
+                    exitWithError("Строки для замены не найдено")
+                return None
+
+            if replace_all:
+                new_content, replacement_count = pattern.subn(
+                    replacement_string, content
+                )
+            else:
+                new_content, replacement_count = pattern.subn(
+                    replacement_string, content, count=1
+                )
+
+        else:
+            if search_pattern not in content:
+                if skip_found is None:
+                    print("-------------------DEBUG-------------------")
+                    print("file_path:", file_path)
+                    print("search_string:", search_pattern)
+                    print("Строки для замены не найдено")
+                    print("-------------------------------------------")
+                    exitWithError("Строки для замены не найдено")
+                return None
+
+            new_content = content.replace(search_pattern, replacement_string)
+            replacement_count = content.count(search_pattern)
+
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(new_content)
+
+        print(f"Строка заменена в файле {file_path}. Количество замен: {replacement_count}")
+        return True
+
+    except (UnicodeDecodeError, FileNotFoundError):
+        return None
 
 def search_and_replace_line(file_path, search_line, replacement_line, skip_found=None):
 	try:
@@ -613,26 +634,32 @@ def insert_smali_code_after_line(file_path, method_name, target_line, smali_code
 		print("-------------------------------------------")
 		exitWithError(f"Произошла ошибка: {e}")
 		
-def insert_code_before_line(file_path, target_line_content, code_to_insert):
+def insert_smali_code_before_line(file_path, method_name, target_line_content, code_to_insert):
 	code_lines = code_to_insert.strip().splitlines(keepends=True)
 
 	with open(file_path, 'r', encoding='utf-8') as file:
 		lines = file.readlines()
 
-	found = False
-
+	in_target_method = False
 	updated_lines = []
+	found = False
+	
 	for line in lines:
-		if target_line_content in line:
+		if method_name is not None and method_name + "(" in line:
+			in_target_method = True
+		if (in_target_method or method_name is None) and target_line_content in line:
 			found = True
 			updated_lines.extend(code_lines)
-			updated_lines.append("\n\n")
+			updated_lines.append("\n")
+		if method_name is not None and in_target_method and line.strip() == '.end method':
+			in_target_method = False
 		updated_lines.append(line)
 
 
 	if not found:
 		print("-------------------DEBUG-------------------")
 		print("file_path:", file_path)
+		print("method_name:", method_name)
 		print("target_line_content:", target_line_content)
 		print("code_to_insert:", code_to_insert)
 		print("Ошибка: строка не найдена!")
@@ -1210,6 +1237,17 @@ def arzmod_patch():
 				return-object v1
 			.end method
 		""")
+		append_to_file(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek.smali"), """
+			.method public static getARZMODPatchedPath(Ljava/lang/String;)Ljava/io/File;
+				.locals 2
+				const-string v0, "/storage/emulated/0/Android"
+				new-instance v1, Ljava/io/File;
+				invoke-direct {v1, v0}, Ljava/io/File;-><init>(Ljava/lang/String;)V
+				return-object v1
+			.end method
+		""")
+		apply_function_to_files(search_and_replace, get_src_path(patchs_path, "/com/arizona/launcher/downloader"), r'invoke-virtual\s+\{([vp0-9]+),\s*([vp0-9]+)\},\s*Landroid/content/Context;->getExternalFilesDir\(Ljava/lang/String;\)Ljava/io/File;', r'invoke-static {\2}, Lcom/arizona/launcher/downloader/FilesChek;->getARZMODPatchedPath(Ljava/lang/String;)Ljava/io/File;', True, True)
+		search_and_replace(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek.smali"), "const-string v0, \"/local_manifest.json\"", f"const-string v0, \"/data/{package_name}/files/local_manifest.json\"")
 		replace_code_between_lines(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench$IncomingHandler.smali"), ".method private static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;", ".end method", """
 			.method private static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;
 				.locals 1
@@ -1407,8 +1445,8 @@ def arzmod_patch():
 		.end method
 	""")
 
-	# UPDATESERVICE PATCH + classes_arzmod/src/com/arzmod/radare/UpdateServicePatch.java
-	search_and_replace(get_src_path(patchs_path, "/com/arizona/launcher/UpdateService$isAllFilesOk$1.smali"), "iget-boolean v6, p0, Lcom/arizona/launcher/UpdateService$isAllFilesOk$1;->$purgeExtraFiles:Z", "const/4 v6, 0x0")	
+	# UPDATESERVICE (FilesChek from 1703) PATCH + classes_arzmod/src/com/arzmod/radare/UpdateServicePatch.java
+	search_and_replace(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek$isAllFilesOk$1.smali"), "iget-boolean v6, p0, Lcom/arizona/launcher/downloader/FilesChek$isAllFilesOk$1;->$purgeExtraFiles:Z", "const/4 v6, 0x0")	
 	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench.smali"), ".method private final checkGameUpdate", ".locals", """
 		invoke-static {}, Lcom/arzmod/radare/UpdateServicePatch;->isModeMods()Z
 		move-result v0
@@ -1416,7 +1454,7 @@ def arzmod_patch():
 		return-void
 		:continue_execution
 	""")
-	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/UpdateService.smali"), ".method private final checkSingleFile", "move-object/from16 v1, p1", """
+	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek.smali"), ".method public final checkSingleFile", "move-object/from16 v1, p1", """
 		new-instance v3, Lcom/arzmod/radare/UpdateServicePatch;
 		invoke-direct {v3}, Lcom/arzmod/radare/UpdateServicePatch;-><init>()V
 		invoke-virtual {v3, v1}, Lcom/arzmod/radare/UpdateServicePatch;->isUserFile(Ljava/io/File;)Z
@@ -1426,28 +1464,29 @@ def arzmod_patch():
 		return v3
 		:continue_execution
 	""")
-	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/UpdateService.smali"), ".method private final checkGameDataUpdate", "move-object/from16 v4, p1", """
-		new-instance v8, Lcom/arzmod/radare/UpdateServicePatch;
-		invoke-direct {v8}, Lcom/arzmod/radare/UpdateServicePatch;-><init>()V
-		invoke-virtual {v8, v4}, Lcom/arzmod/radare/UpdateServicePatch;->checkUserFiles(Lorg/json/JSONArray;)V
+	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek.smali"), ".method public final checkGameDataUpdate", "move-object/from16 v1, p1", """
+		new-instance v7, Lcom/arzmod/radare/UpdateServicePatch;
+		invoke-direct {v7}, Lcom/arzmod/radare/UpdateServicePatch;-><init>()V
+		invoke-virtual {v7, v1}, Lcom/arzmod/radare/UpdateServicePatch;->checkUserFiles(Lorg/json/JSONArray;)V
+		const/4 v7, 0x0
 	""")
 	insert_smali_code_after_line(get_src_path(patchs_path, "/com/miami/game/core/app/root/nav/main/MainComponent.smali"), ".method public final navigateBackDialog", ".locals", """
 		const/4 v0, 0x0
 		invoke-static {v0}, Lcom/arzmod/radare/UpdateServicePatch;->setHomeUi(Z)V
 	""")
-	insert_smali_code_after_line(get_src_path(patchs_path, "/com/miami/game/feature/home/ui/HomeComponent.smali"), ".method public final onClickGame", "if-eqz v0, :cond_0", """
+	insert_smali_code_before_line(get_src_path(patchs_path, "/com/miami/game/feature/home/ui/HomeComponent.smali"), ".method public final onClickGame", "if-eqz v1, :cond_0", """
 		invoke-static {}, Lcom/arzmod/radare/UpdateServicePatch;->isFreeLaunch()Z
-		move-result v0
-		if-nez v0, :cond_0
+		move-result v4
+		if-nez v4, :cond_0
 	""")
-	insert_smali_code_after_line(get_src_path(patchs_path, "/com/miami/game/feature/home/ui/HomeComponent.smali"), ".method public final onClickGame", "if-nez v0, :cond_2", """
+	insert_smali_code_before_line(get_src_path(patchs_path, "/com/miami/game/feature/home/ui/HomeComponent.smali"), ".method public final onClickGame", "if-nez v1, :cond_3", """
 		invoke-static {}, Lcom/arzmod/radare/UpdateServicePatch;->isFreeLaunch()Z
-		move-result v0
-		if-nez v0, :cond_2
+		move-result v4
+		if-nez v4, :cond_3
 	""")
 
 	# x32 COMPATIBLE
-	insert_code_before_line(get_src_path(patchs_path, "/com/arizona/game/GTASA.smali"), ".method private native InitSetting(", """
+	insert_smali_code_before_line(get_src_path(patchs_path, "/com/arizona/game/GTASA.smali"), None, ".method private native InitSetting(", """
 		.method public static native InitModloaderConfig(I)V
 		.end method
 	""")
@@ -1515,10 +1554,24 @@ def arzmod_patch():
 	""")
 	search_and_replace(get_src_path(patchs_path, "/ru/mrlargha/commonui/elements/hud/presentation/Hud.smali"), ".field private final binding", ".field public final binding")
 	insert_smali_code_after_line(get_src_path(patchs_path, "/ru/mrlargha/commonui/elements/hud/presentation/Hud$installHud$1$1.smali"), ".method public final invokeSuspend", "Lru/mrlargha/commonui/databinding/HudPageBinding;->hudServerInfoContainer:Landroidx/constraintlayout/widget/ConstraintLayout;", """
-		invoke-static {p0}, Lcom/arzmod/radare/GamePatches;->updateHudShield(Lru/mrlargha/commonui/elements/hud/presentation/Hud;)V
+		iget-object v0, p0, Lru/mrlargha/commonui/elements/hud/presentation/Hud$installHud$1$1;->this$0:Lru/mrlargha/commonui/elements/hud/presentation/Hud;
+		invoke-static {v0}, Lcom/arzmod/radare/GamePatches;->updateHudShield(Lru/mrlargha/commonui/elements/hud/presentation/Hud;)V
 	""")
 	insert_smali_code_after_line(get_src_path(patchs_path, "/ru/mrlargha/commonui/elements/hud/presentation/Hud.smali"), ".method public final installHud", "Lru/mrlargha/commonui/databinding/HudPageBinding;->hudServerShieldSite:Landroid/widget/TextView;", """
 		invoke-static {p0}, Lcom/arzmod/radare/GamePatches;->updateHudShield(Lru/mrlargha/commonui/elements/hud/presentation/Hud;)V
+	""")
+	
+	insert_smali_code_after_line(get_src_path(patchs_path, "/ru/mrlargha/commonui/core/SAMPUIElement.smali"), ".method public setVisibility", "if-eq v0, v1, :cond_3", """
+		sget-object v1, Lru/mrlargha/commonui/core/UIElementID;->HUD:Lru/mrlargha/commonui/core/UIElementID;
+		invoke-virtual {v1}, Lru/mrlargha/commonui/core/UIElementID;->getId()I
+		move-result v1
+		if-ne v0, v1, :passVisibleUpdate
+
+		invoke-static {}, Lcom/arzmod/radare/GamePatches;->notifyVisible()Z
+		move-result v1
+		if-eqz v1, :cond_3
+
+		:passVisibleUpdate
 	""")
 
 
