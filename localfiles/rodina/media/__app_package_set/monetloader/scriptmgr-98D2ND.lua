@@ -23,9 +23,9 @@
 
 -- script info
 script_name('Script Manager')
-script_version('1.2-recode')
+script_version('2.0 ARZMOD')
 script_version_number(2)
-script_author('The MonetLoader Team')
+script_author('The MonetLoader Team', 'ARZMOD')
 script_description('Script manager that opens on left swipe on radar and provides ability to manage scripts, view logs, execute Lua code in REPL-like mode and receive script notifications.')
 script_properties('work-in-pause', 'forced-reloading-only') -- work even in pause and don't reload ourselves on reloadScripts()
 
@@ -37,9 +37,14 @@ local widgets = require('widgets') -- for WIDGET_(...)
 local imgui = require('mimgui')
 local faicons = require('fAwesome6')
 local cfg = require('jsoncfg')
+local cjson = require("cjson")
 local copas = require ('copas') -- for download scripts from url
 local http = require ('copas.http') -- for download scripts from url
 local gta = ffi.load('GTASA') -- for hook to open link
+local lfs = require('lfs') -- LuaFileSystem for directory operations
+local isAndroidEnvLoaded, env = pcall(require, "android.jnienv")
+local isAndroidEnvuLoaded, envu = pcall(require, "android.jnienv-util")
+local isWebViewsLoaded, isWebViewsLoadTry, wv = false, false, nil
 
 
 ffi.cdef[[
@@ -391,29 +396,43 @@ imgui.OnFrame(
 
 -- global vars
 
+local wvWindow = {
+  windowUrls = {"https://app.arzmod.com", "https://mods.radarebot.hhos.net"},
+  serverfind = false,
+  created = false,
+  visible = false,
+  progress = 0,
+  position = {x = 0, y = 0, w = 0, h = 0},
+  confirmDialog = {
+    text = "TEXT",
+    response = -1
+  }
+}
+
 local DEFAULT_CONFIG = { -- default config
   crashNotifications = true, -- whether to show script crash notifications or not
   scriptMessageNotifications = false, -- whether to show script message notifications or not
   messagesCount = 100, -- count of saved messages
   lastCrashesCount = 10, -- count of saved crashed scripts
-  shellHistoryCount = 50 -- count of saved shell history
+  shellHistoryCount = 50, -- count of saved shell history
+  scriptStoreZoom = 60, -- value of zoom on script store webview
 }
 
 local config = cfg.load(DEFAULT_CONFIG) -- simply config
 local messages = circular_buffer.new(config.messagesCount) -- buffer that stores last messages
-local dwn_msg = circular_buffer.new(config.messagesCount) -- buffer that stores last messages for download menu
 local lastCrashes = circular_buffer.new(config.lastCrashesCount) -- buffer that stores script info about last crashes
 local shellHistory = circular_buffer.new(config.shellHistoryCount) -- buffer that stores shell history
 local shellInputHistory = circular_buffer.new(math.ceil(config.shellHistoryCount / 2)) -- buffer that stores shell input history
 local shellInputHistoryPos = 0 -- current position in shellInputHistory
 local scriptCrashInfos = {} -- buffer that stores reasons for script crash
 local reloadLastCrashInfos = {} -- buffer that stores crash info that initiated reload for a given path
+local disabledScripts = nil -- buffer that stores disabled scripts
 
 local selectedScriptId = -1 -- id of selected script
 local selectedScriptExports -- table returned by import on selected script
 local wasInLog = false -- set to true when tab is log, used to auto-scroll to bottom on tab switch
 local wasInShell = false -- same, but with shell
-local wasInDwn = false -- sameeeee
+local wasInScriptStore = false
 local windowState = imgui.new.bool(false) -- script mgr window is active or not
 -- some imgui wrappers
 local imScriptStatus = imgui.new.bool(false) -- ffi variable for script toggling
@@ -422,15 +441,13 @@ local imScriptMessageNotifications = imgui.new.bool(config.scriptMessageNotifica
 local imMessagesCount = imgui.new.int(config.messagesCount)
 local imLastCrashesCount = imgui.new.int(config.lastCrashesCount)
 local imShellHistoryCount = imgui.new.int(config.shellHistoryCount)
+local imScriptStoreZoom = imgui.new.int(config.scriptStoreZoom)
+
 
 local scriptsSearchBuffer = imgui.new.char[128]() -- buffer for scripts search input
 local scriptsSearchText = '' -- scripts search input as lua string
 local logSearchBuffer = imgui.new.char[128]() -- buffer for log search input
 local logSearchText = '' -- log search input as lua string
-local dwnUrlBuffer = imgui.new.char[128]() -- buffer for script url input
-local dwnUrlText = '' -- script url input as lua string
-local dwnNameBuffer = imgui.new.char[128]() -- buffer for script name input
-local dwnNameText = '' -- script name input as lua string
 local shellInputBuffer = imgui.new.char[512]() -- buffer for shell input
 
 -- utils
@@ -478,9 +495,63 @@ imgui.OnFrame(
     imgui.SetNextWindowSize(imgui.ImVec2(530 * MONET_DPI_SCALE, 330 * MONET_DPI_SCALE), imgui.Cond.FirstUseEver)
     imgui.Begin('Script Manager for MonetLoader v' .. script.this.version, windowState, imgui.WindowFlags.NoCollapse)
 
+    if wasInScriptStore then
+      if wvWindow.created then
+        if wvWindow.position.x ~= imgui.GetWindowPos().x or wvWindow.position.y ~= imgui.GetWindowPos().y then wv.setPos(0, imgui.GetWindowPos().x, imgui.GetWindowPos().y + imgui.GetCursorPos().y-10) end
+        if wvWindow.position.h ~= imgui.GetWindowContentRegionMax().y or wvWindow.position.w ~= imgui.GetWindowContentRegionMax().x then wv.setSize(0, imgui.GetWindowContentRegionMax().x + imgui.GetCursorPos().x, imgui.GetWindowContentRegionMax().y-90) end
+        wvWindow.position = {x = imgui.GetWindowPos().x, y = imgui.GetWindowPos().y, w = imgui.GetWindowContentRegionMax().x, h = imgui.GetWindowContentRegionMax().y}
+      end
+      
+      if wvWindow.progress ~= 100 then
+        imgui.SetCursorPosX(imgui.GetWindowWidth()/2-250/2)
+        imgui.SetCursorPosY(imgui.GetWindowContentRegionMax().y/2) 
+        if isWebViewsLoaded then
+          imgui.SetCursorPosY(imgui.GetCursorPosY()-250/2.2) 
+          imgui.InfinitySpinner('loader', 250, 7, {1, 1, 1, 1}, {5, 5, 5, 0.1})
+          if wvWindow.serverfind then
+            imgui.SetCursorPosX(imgui.GetWindowWidth()/2-imgui.CalcTextSize("Trying to find an available server...").x/2)
+            imgui.Text("Trying to find an available server...")
+          else
+            imgui.SetCursorPosX(imgui.GetWindowWidth()/2-imgui.CalcTextSize("["..wvWindow.progress.."] Loading...").x/2)
+            imgui.Text("["..wvWindow.progress.."] Loading...")
+          end
+        else
+          imgui.SetCursorPosX(imgui.GetWindowWidth()/2-imgui.CalcTextSize("The WebViews library is not loaded.\nMake sure you have the lib.android and lib.webviews libraries installed.").x/2)
+          imgui.Text("The WebViews library is not loaded.\nMake sure you have the lib.android and lib.webviews libraries installed.")
+        end
+      elseif wvWindow.created and wvWindow.confirmDialog.response == 0 and isWebViewsLoaded then
+        if wvWindow.visible then
+          wv.setVisible(0, false)
+          wvWindow.visible = false
+        end
+        imgui.SetCursorPosY(imgui.GetWindowSize().y / 3)
+        imgui.SetCursorPosX(imgui.GetWindowWidth()/2-imgui.CalcTextSize(wvWindow.confirmDialog.text).x/2) 
+        imgui.Text(wvWindow.confirmDialog.text)
+        imgui.SetCursorPosX((imgui.GetWindowWidth() - (imgui.CalcTextSize('Yes').x + imgui.CalcTextSize('No').x + imgui.GetStyle().FramePadding.x * 4 + imgui.GetStyle().ItemSpacing.x)) / 2)
+        if imgui.Button('Yes') then
+            wvWindow.confirmDialog.response = 1
+            wv.setVisible(0, true)
+            wvWindow.visible = true
+          end
+          imgui.SameLine()
+          if imgui.Button('No') then
+            wvWindow.confirmDialog.response = 2
+            wv.setVisible(0, true)
+            wvWindow.visible = true
+          end
+      else
+        if wvWindow.created and not wvWindow.visible then
+          wv.setVisible(0, true)
+          wvWindow.visible = true
+        end
+      end
+      imgui.SetCursorPosY(imgui.GetWindowContentRegionMax().y-40) 
+    end
+
     if imgui.BeginTabBar('Tabs') then
       local didLogRender = false
       local didShellRender = false
+      local didScriptStoreRender = false
 
       if imgui.BeginTabItem('Scripts') then -- common scripts control
         if imgui.InputTextWithHint('##ScriptsSearch', 'Find...', scriptsSearchBuffer, ffi.sizeof(scriptsSearchBuffer)) then
@@ -512,6 +583,7 @@ imgui.OnFrame(
         imgui.Columns(2, '##ScriptsColumns', false)
         imgui.PopStyleVar()
         local scripts = script.list()
+        if disabledScripts == nil then disabledScripts = getDisabledScripts() end
 
         if imgui.ListBoxHeaderVec2('##ScriptsListBox', imgui.ImVec2(-1, -1)) then
           for i, v in ipairs(scripts) do
@@ -522,12 +594,30 @@ imgui.OnFrame(
               end
             end
           end
+          
+          for i, v in ipairs(disabledScripts) do
+            if v.name:lower():find(scriptsSearchText, 1, true) then
+              imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.5, 0.5, 0.5, 1.0))
+              if imgui.Selectable(v.name .. ' (disabled)##disabled_' .. i, selectedScriptId == -i-1000) then
+                selectedScriptId = -i-1000
+                selectedScriptExports = nil
+              end
+              imgui.PopStyleColor()
+            end
+          end
           imgui.ListBoxFooter()
         end
 
         imgui.NextColumn()
 
         local scr = script.get(selectedScriptId)
+        local selectedDisabledScript = nil
+        
+        if selectedScriptId < 0 then
+          local disabledIndex = math.abs(selectedScriptId + 1000)
+          selectedDisabledScript = disabledScripts[disabledIndex]
+        end
+        
         if scr ~= nil then
           imgui.TextWrapped('Name: %s', scr.name)
           if scr.filename ~= scr.name then
@@ -556,7 +646,6 @@ imgui.OnFrame(
 
           local url = scr.url
           if #url ~= 0 then
-            --imgui.TextWrapped('URL: %s', url)
             imgui.TextWrapped('URL:')
             imgui.SameLine()
             imgui.Link(addProtocolIfNeeded(url))
@@ -572,13 +661,20 @@ imgui.OnFrame(
             Notifications.Show(scr.name .. ':\nReloaded!', Notifications.TYPE.OK)
           end
           imgui.SameLine()
+          if imgui.Button('Disable') then
+            if disableScript(scr.path) then
+              scr:unload()
+              selectedScriptId = -1
+            end
+          end
+          imgui.SameLine()
           if imgui.Button('Delete') then
             imgui.OpenPopup('Delete script')
           end
 
           if imgui.BeginPopupModal('Delete script') then
             imgui.Text('Are you sure you want to delete the script: '..scr.name..'?')
-      
+    
             if imgui.Button('Yes', imgui.ImVec2(150 * MONET_DPI_SCALE, 50 * MONET_DPI_SCALE)) then
               scr:unload()
               os.remove(scr.path)
@@ -589,7 +685,7 @@ imgui.OnFrame(
             if imgui.Button('No', imgui.ImVec2(150 * MONET_DPI_SCALE, 50 * MONET_DPI_SCALE)) then
               imgui.CloseCurrentPopup()
             end
-      
+    
             imgui.End()
           end
 
@@ -621,6 +717,41 @@ imgui.OnFrame(
                 end
               end
             end
+          end
+        elseif selectedDisabledScript ~= nil then
+          imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.7, 0.7, 0.7, 1.0))
+          imgui.TextWrapped('Name: %s', selectedDisabledScript.name)
+          imgui.TextWrapped('File name: %s', selectedDisabledScript.filename)
+          imgui.TextWrapped('Status: Disabled')
+          imgui.TextWrapped('Path: %s', selectedDisabledScript.path)
+          imgui.PopStyleColor()
+  
+          
+          if imgui.Button('Enable') then
+            if enableScript(selectedDisabledScript.path) then
+              selectedScriptId = -1
+            end
+          end
+          imgui.SameLine()
+          if imgui.Button('Delete') then
+            imgui.OpenPopup('Delete disabled script')
+          end
+          
+          if imgui.BeginPopupModal('Delete disabled script') then
+            imgui.Text('Are you sure you want to permanently delete the disabled script: '..selectedDisabledScript.name..'?')
+    
+            if imgui.Button('Yes', imgui.ImVec2(150 * MONET_DPI_SCALE, 50 * MONET_DPI_SCALE)) then
+              os.remove(selectedDisabledScript.path)
+              Notifications.Show(selectedDisabledScript.name .. ':\nDeleted permanently!', Notifications.TYPE.OK)
+              selectedScriptId = -1
+              imgui.CloseCurrentPopup()
+            end
+            imgui.SameLine()
+            if imgui.Button('No', imgui.ImVec2(150 * MONET_DPI_SCALE, 50 * MONET_DPI_SCALE)) then
+              imgui.CloseCurrentPopup()
+            end
+    
+            imgui.End()
           end
         else
           imgui.Text('<<<\nSelect any script on the left!')
@@ -872,44 +1003,216 @@ imgui.OnFrame(
           shellInputHistory = newInputBuffer
         end
 
+        if imgui.InputInt('Mods Store Zoom', imScriptStoreZoom, 1, 20) then
+          if imScriptStoreZoom[0] < 40 then
+            imScriptStoreZoom[0] = 40
+          elseif imScriptStoreZoom[0] > 200 then
+            imScriptStoreZoom[0] = 200
+          end
+
+          config.scriptStoreZoom = imScriptStoreZoom[0]
+          cfg.save(config)
+          if wvWindow.created then wv.executeJS(0, "document.body.style.zoom = \""..config.scriptStoreZoom.."%\";") end
+        end
+
         imgui.EndTabItem()
       end
 
-      if imgui.BeginTabItem('Download from URL') then -- download script menu
-        imgui.PushItemWidth(400)
-        if imgui.InputTextWithHint('##ScriptURL', 'URL File', dwnUrlBuffer, ffi.sizeof(dwnUrlBuffer)) then
-          dwnUrlText = ffi.string(dwnUrlBuffer)
-        end
-        imgui.SameLine()
-        if imgui.InputTextWithHint('##SciptName', 'Name File (with extension)', dwnNameBuffer, ffi.sizeof(dwnNameBuffer)) then
-          dwnNameText = ffi.string(dwnNameBuffer)
-        end
-        imgui.PopItemWidth()
-        imgui.SameLine()
-        if imgui.Button('Download File') then
-          scriptDownload(dwnUrlText, dwnNameText)
+      if imgui.BeginTabItem('Mods Store') then
+        didScriptStoreRender = true
+
+        if not isWebViewsLoaded and not isWebViewsLoadTry then
+          isWebViewsLoaded, wv = pcall(require, "webviews")
+          isWebViewsLoadTry = true
+
+          if isWebViewsLoaded then
+            local canceledTasks = {}
+            function wv.onAction(data)
+              if data.type == "WV_LOADED" then
+                wv.executeJS(data.browserid, "document.body.style.zoom = \""..config.scriptStoreZoom.."%\";")
+                wv.executeJS(data.browserid, "window.app.webInitialize();")
+                wv.executeJS(data.browserid, "window.app.scriptVersion("..script.this.version_num..");")
+              elseif data.type == "WV_ANSWER" then
+                local success, json = pcall(cjson.decode, data.msg)
+                local jsonModPath = nil
+                if json.name then
+                    if json.path then
+                      jsonModPath = getRealPath(json.path).."/"
+                    elseif json.type then
+                      jsonModPath = json.type == "mod" and getWorkingDirectory().."/" or getGameDirectory().."/"
+                    end
+                end
+                if success then
+                  if json.action == "downloadFile" then
+                    lua_thread.create(function()
+                      local stage = "prepare"
+                      local progress = 0
+                      local filename = json.name
+                      local function notifyUpdate() wv.executeJS(data.browserid, "window.app.onDownloadProgress(\""..json.task.."\", \""..stage.."\", \""..filename.."\", "..string.format("%.2f", progress)..")") end
+                      local function isTaskCancelled() if canceledTasks[json.task] then return true else return false end end
+                      wvWindow.confirmDialog.text = "Are you sure you want to download ".. json.name .. "?"
+                      wvWindow.confirmDialog.response = 0
+                      while wvWindow.confirmDialog.response == 0 do wait(0) end
+                      if wvWindow.confirmDialog.response == 1 then
+                        wv.executeJS(data.browserid, "window.app.onInstallStage('loading')")
+                        wv.executeJS(data.browserid, "window.app.setFilename('"..json.name.."')")
+                        downloadToFile(json.url, jsonModPath..json.name, function(type, pos, total_size)
+                          if isTaskCancelled() then
+                            stage = "cancelled"
+                            progress = 0
+                            filename = "Отменено"
+                            notifyUpdate()
+                            return false
+                          end
+                          if type == "downloading" then
+                            stage = "loading"
+                            progress = pos/total_size*100
+                            notifyUpdate()
+                          elseif type == "finished" then
+                            if json.zip then
+                              progress = 0
+                              stage = "unpacking"
+                              filename = ""
+                              notifyUpdate()
+                              lua_thread.create(unpack_archive, jsonModPath..json.name, jsonModPath, function(type, current, total, file_name)
+                                  if isTaskCancelled() then
+                                    stage = "cancelled"
+                                    progress = 0
+                                    filename = "Отменено"
+                                    notifyUpdate()
+                                    return false
+                                  end
+                                  if type == "unpacking" then
+                                    filename = file_name
+                                    progress = current/total*100
+                                    notifyUpdate()
+                                  elseif type == "finished" then
+                                    filename = "Успешно"
+                                    progress = 100
+                                    stage = "completed"
+                                    wv.executeJS(data.browserid, "window.app.setModInstalled(\""..json.name.."\", true)")
+                                    if json.type == "mod" then
+                                      wvWindow.confirmDialog.text = "Are you want to reload all scripts?\n(the installed mod was in .zip and was not automatically loaded)"
+                                      wvWindow.confirmDialog.response = 0
+                                      while wvWindow.confirmDialog.response == 0 do wait(0) end
+                                      if wvWindow.confirmDialog.response == 1  then
+                                        reloadScripts()
+                                      end
+                                    end
+                                    notifyUpdate()
+                                  elseif type == "error" then
+                                    filename = file_name
+                                    stage = "error"
+                                    notifyUpdate()
+                                  end
+                                  return true
+                              end)
+                            else
+                              progress = 100
+                              stage = "completed"
+                              notifyUpdate()
+                              wv.executeJS(data.browserid, "window.app.setModInstalled(\""..json.name.."\", true)")
+                              if json.type == "mod" then script.load(jsonModPath..json.name) end
+                            end
+                          elseif type == "error" then
+                            stage = "error"
+                            notifyUpdate()
+                          end
+                          return true
+                        end)
+                      else
+                        stage = "error"
+                        notifyUpdate()
+                      end
+                    end)
+                  elseif json.action == "removeFile" and jsonModPath then
+                    lua_thread.create(function()
+                      wvWindow.confirmDialog.text = "Are you sure you want to delete ".. json.name .. "?"
+                      wvWindow.confirmDialog.response = 0
+                      while wvWindow.confirmDialog.response == 0 do wait(0) end
+                      if wvWindow.confirmDialog.response == 1  then
+                        if not json.zip then unloadScriptByName(jsonModPath..json.name) end
+                        os.remove(jsonModPath..json.name)
+                        wv.executeJS(data.browserid, "window.app.setModInstalled(\""..json.name.."\", false)")
+                      end
+                    end)
+                  elseif json.action == "isModInstalled" and jsonModPath then
+                    local attr = lfs.attributes(jsonModPath..json.name)
+                    if attr then 
+                      wv.executeJS(data.browserid, "window.app.setModInstalled(\""..json.name.."\", true, "..attr.size..")")
+                    else
+                      wv.executeJS(data.browserid, "window.app.setModInstalled(\""..json.name.."\", false)")
+                    end
+                  elseif json.action == "cancelTask" then
+                    canceledTasks[json.task] = true
+                  elseif json.action == "scriptSession" then
+                    if not doesDirectoryExist(getWorkingDirectory() .. "/scriptmgr") then createDirectory(getWorkingDirectory() .. "/scriptmgr") end
+                    local file = io.open(getWorkingDirectory() .. "/scriptmgr/session.txt", "w")
+                    if file then
+                        file:write(json.id)
+                        file:close()
+                    end
+                  end
+                end
+              elseif data.type == "WV_PROGRESS" then
+                if wvWindow.progress < 100 then wvWindow.progress = tonumber(data.msg) end
+              elseif data.type == "WV_CHANGEURL" then
+                local urls = cjson.decode(data.msg)
+                if not isAllowedUrl(urls.new_url) then
+                  wv.changeUrl(data.browserid, urls.current_url)
+                  openLink(urls.new_url)
+                end
+              elseif data.type == "WV_DIE" then
+                local browser = cjson.decode(data.msg)
+                wv.deleteBrowser(data.browserid)
+                wv.createBrowser(data.browserid, browser.url)
+                wv.setPos(data.browserid, browser.x, browser.y)
+                wv.setSize(data.browserid, browser.width, browser.height)
+                wv.setVisible(data.browserid, browser.visible)
+                wv.setClickable(data.browserid, browser.clickable)
+              end
+            end
+          end
         end
 
-        imgui.BeginChild('##DownloadChild') -- child in order to only scroll text without scrolling search and etc
-        if #(dwn_msg.history) == 0 then dwn_msg:push('To install the script, enter the direct url to it, and enter its name. For example: URL - example.com/script.lua | NAME - MyScript.lua\nYou can also install resources. Specify the path in the script name, for example: resource/image.png\nThen image.png will be installed along the path monetloader/resource/') end
-        for i, v in any_ipairs(dwn_msg) do
-            imgui.TextWrapped('%s', v)
-        end
+        if not wvWindow.created and not wvWindow.serverfind and isWebViewsLoaded then
+          wvWindow.serverfind = true
 
-        if imgui.GetScrollY() >= imgui.GetScrollMaxY() or not wasInDwn then
-          imgui.SetScrollHereY(1.0)
-        end
 
-        imgui.EndChild()
-  
-        imgui.EndTabItem()
-        didDwnRender = true
+          local headers = {
+            ["accept"] = "*/*",
+            ["user-agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0",
+            ["Upgrade-Insecure-Requests"] = "1"
+          }
+
+          for i, url in ipairs(wvWindow.windowUrls) do
+            httpRequest(url.."/16kb.rofl", nil, function(response, code, headers, status)
+              if response and code >= 200 and code < 300 then
+                local assert = decodeJson(response)
+                if assert.hash == "5aa4731d5d84e09e2f7e7141e560104f" and wvWindow.serverfind then
+                  wv.createBrowser(0, url)
+                  wv.setClickable(0, true)
+                  wv.setVisible(0, false)
+                  wvWindow.created = true
+                  wvWindow.serverfind = false
+                  wvWindow.visible = false
+                end
+              end
+            end)
+          end
+        end
       end
 
       imgui.EndTabBar()
       wasInLog = didLogRender
       wasInShell = didShellRender
-      wasInDwn = didDwnRender
+      if wasInScriptStore ~= didScriptStoreRender then
+        if wvWindow.created then 
+          wv.setVisible(0, didScriptStoreRender) 
+          wvWindow.visible = didScriptStoreRender
+        end
+        wasInScriptStore = didScriptStoreRender
+      end
     end
 
     imgui.End()
@@ -981,9 +1284,10 @@ function onScriptTerminate(scr, quit)
     scriptCrashInfos[scr.id] = nil
   end
 
-  -- if scr == script.this then
-  --   cfg.save(config)
-  -- end
+  if scr == script.this then
+    -- cfg.save(config)
+    if wvWindow.created then wv.deleteBrowser(0) end 
+  end
 end
 
 -- mark script as reloaded in last crashes if it was loaded
@@ -1009,11 +1313,15 @@ function main()
     if isWidgetSwipedLeft(WIDGET_RADAR) then
       windowState[0] = not windowState[0]
     end
+    if not windowState[0] and wvWindow.visible then
+      wv.setVisible(0, windowState[0])
+      wvWindow.visible = windowState[0]
+    end
     wait(0)
   end
 end
 
--- added functions (radare)
+-- added functions (by arzmod)
 
 function httpRequest(request, body, handler)
     -- start polling task
@@ -1046,47 +1354,6 @@ function httpRequest(request, body, handler)
     end
 end
 
-function scriptDownload(url, name)
-  local headers = {
-      ["accept"] = "*/*",
-      ["user-agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0",
-      ["Upgrade-Insecure-Requests"] = "1"
-  }
-
-  dwn_msg:push('(function) Download file started. URL: '..url..' name: '..name)
-  if string.len(url) < 1 then dwn_msg:push('(function) Please input file url. URL: '..url) return end
-  if string.len(name) < 1 then dwn_msg:push('(function) Please input file name. Name: '..name) return end
-
-  if url ~= addProtocolIfNeeded(url) then
-    url = addProtocolIfNeeded(url)
-    dwn_msg:push('(function) The certificate type is not specified. HTTP is automatically specified. URL: '..url)
-  end
-
-  dwn_msg:push('(http) Sending HTTP Request to '..url)
-  httpRequest(url, nil, function(response, code, headers, status)
-      if response and code >= 200 and code < 300 then
-        dwn_msg:push('(http) Response successfuly. Writing to file. Path: '..getWorkingDirectory().."/"..name)
-
-        local components = {}
-        for component in name:gmatch("[^/]+") do
-            table.insert(components, component)
-        end
-        local currentPath = getWorkingDirectory()
-        for i = 1, #components - 1 do
-            currentPath = currentPath .. "/" .. components[i]
-            if not doesDirectoryExist(currentPath) then dwn_msg:push('(function) Creating directory: '..currentPath) createDirectory(currentPath) end
-        end
-
-        local f = assert(io.open(getWorkingDirectory().."/"..name, 'wb'))
-        f:write(response)
-        f:close()
-
-        dwn_msg:push('(http) File successfuly downloaded. Status: '..status..' Path: '..getWorkingDirectory().."/"..name)
-      else
-        dwn_msg:push('(http) Response error. URL: '..url..' CODE: '..code..' STATUS: '..status)
-      end
-  end)
-end
 
 function addProtocolIfNeeded(url)
     if not url:match("^https?://") then
@@ -1109,4 +1376,370 @@ function imgui.Link(link, text)
     local color = imgui.IsItemHovered() and col[1] or col[2]
     DL:AddText(p, color, text)
     DL:AddLine(imgui.ImVec2(p.x, p.y + tSize.y), imgui.ImVec2(p.x + tSize.x, p.y + tSize.y), color)
+end
+
+
+-- https://www.blast.hk/threads/13380/post-1651546
+local infinityStates = {}
+
+function imgui.InfinitySpinner(label, size, thickness, activeColor, backgroundColor)
+    local draw_list = imgui.GetWindowDrawList()
+    local pos = imgui.GetCursorScreenPos()
+    local time = imgui.GetTime()
+    
+    local width = size or 100
+    local height = width / 2.2
+    local thickness = thickness or 4
+    local num_segments = 100
+
+    if not infinityStates[label] then
+        infinityStates[label] = { last_time = time }
+    end
+
+    local col_bg = imgui.ColorConvertFloat4ToU32(imgui.ImVec4(unpack(backgroundColor or {0.2, 0.2, 0.2, 0.3})))
+    local col_active = imgui.ColorConvertFloat4ToU32(imgui.ImVec4(unpack(activeColor or {0.0, 0.0, 0.0, 1.0})))
+
+    local function getInfinityPoint(t, center, a)
+        local sin_t = math.sin(t)
+        local cos_t = math.cos(t)
+        local denom = 1 + sin_t * sin_t
+        local x = (a * cos_t) / denom
+        local y = (a * sin_t * cos_t) / denom
+        return imgui.ImVec2(center.x + x, center.y + y)
+    end
+
+    local center = imgui.ImVec2(pos.x + width / 2, pos.y + height / 2)
+    local a = width / 2
+
+    draw_list:PathClear()
+    for i = 0, num_segments do
+        local t = (i / num_segments) * math.pi * 2
+        draw_list:PathLineTo(getInfinityPoint(t, center, a))
+    end
+    draw_list:PathStroke(col_bg, true, thickness)
+
+    local speed = 3.0
+    local segment_length = 1.2
+    local start_t = time * speed
+    local end_t = start_t + segment_length
+
+    draw_list:PathClear()
+    for i = 0, 30 do
+        local t = start_t + (i / 30) * (end_t - start_t)
+        draw_list:PathLineTo(getInfinityPoint(t, center, a))
+    end
+    draw_list:PathStroke(col_active, false, thickness)
+
+    imgui.Dummy(imgui.ImVec2(width, height))
+end
+
+
+-- https://rentry.co/monetloader-download-functions
+function downloadToFile(url, path, callback, progressInterval)
+  callback = callback or function() end
+  progressInterval = progressInterval or 0.1
+  local effil = require("effil")
+  local progressChannel = effil.channel(0)
+  local cancelChannel = effil.channel(0)
+
+  local runner = effil.thread(function(url, path)
+    local http = require("socket.http")
+    local ltn = require("ltn12")
+
+    local _, res, code, headers = pcall(http.request, {
+      method = "HEAD",
+      url = url,
+      headers = {
+        ['accept'] = '*/*',
+        ['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0',
+        ['Upgrade-Insecure-Requests'] = '1'
+      }
+    })
+
+    local total_size = headers["content-length"] or 0
+
+    local f = io.open(path, "w+b")
+    if not f then
+      return false, "failed to open file"
+    end
+    local success, res, status_code = pcall(http.request, {
+      method = "GET",
+      url = url,
+      headers = {
+        ['accept'] = '*/*',
+        ['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:67.0) Gecko/20100101 Firefox/67.0',
+        ['Upgrade-Insecure-Requests'] = '1'
+      },
+      sink = function(chunk, err)
+        if cancelChannel:size() > 0 then
+            return nil
+        end
+
+        local clock = os.clock()
+        if chunk and not lastProgress or (clock - lastProgress) >= progressInterval then
+          progressChannel:push("downloading", f:seek("end"), total_size)
+          lastProgress = os.clock()
+        elseif err then
+          progressChannel:push("error", err)
+        end
+
+        return ltn.sink.file(f)(chunk, err)
+      end,
+    })
+
+    if cancelChannel:size() > 0 then
+        f:close()
+        return false, "cancelled"
+    end
+
+    if not success then
+      return false, res
+    end
+
+    if not res then
+      return false, status_code
+    end
+
+    return true, total_size
+  end)
+  local thread = runner(url, path)
+
+  local function checkStatus()
+    local tstatus = thread:status()
+    if tstatus == "failed" or tstatus == "completed" then
+      local result, value = thread:get()
+
+      if result then
+        callback("finished", value)
+      else
+        callback("error", value)
+      end
+
+      return true
+    end
+  end
+
+  lua_thread.create(function()
+    if checkStatus() then
+      return
+    end
+
+    while thread:status() == "running" do
+      if progressChannel:size() > 0 then
+        local type, pos, total_size = progressChannel:pop()
+        local ret = callback(type, pos, total_size)
+        if ret == false then
+            cancelChannel:push(true)
+        end
+      end
+      wait(0)
+    end
+
+    checkStatus()
+  end)
+end
+function toboolean(num) return num > 0 end
+
+
+function disableScript(scriptPath)
+  local workingDir = getWorkingDirectory()
+  local disabledDir = workingDir .. "/scriptmgr/disabled"
+  
+  if not doesDirectoryExist(workingDir .. "/scriptmgr") then createDirectory(workingDir .. "/scriptmgr") end
+  if not doesDirectoryExist(disabledDir) then createDirectory(disabledDir) end
+  
+  local fileName = scriptPath:match("([^\\/]+)$") or scriptPath
+  local disabledPath = disabledDir .. "/" .. fileName
+  
+  local success = os.rename(scriptPath, disabledPath)
+  if success then
+    Notifications.Show("Script disabled: " .. fileName, Notifications.TYPE.OK)
+    disabledScripts = getDisabledScripts()
+    return true
+  else
+    Notifications.Show("Failed to disable script: " .. fileName, Notifications.TYPE.ERROR)
+    return false
+  end
+end
+
+function enableScript(scriptPath)
+  local workingDir = getWorkingDirectory()
+  local disabledDir = workingDir .. "/scriptmgr/disabled"
+  
+  local fileName = scriptPath:match("([^\\/]+)$") or scriptPath
+  local disabledPath = disabledDir .. "/" .. fileName
+  local enabledPath = workingDir .. "/" .. fileName
+  
+  local success = os.rename(disabledPath, enabledPath)
+  if success then
+    Notifications.Show("Script enabled: " .. fileName, Notifications.TYPE.OK)
+    script.load(enabledPath)
+    disabledScripts = getDisabledScripts()
+    return true
+  else
+    Notifications.Show("Failed to enable script: " .. fileName, Notifications.TYPE.ERROR)
+    return false
+  end
+end
+
+function getDisabledScripts()
+  local workingDir = getWorkingDirectory()
+  local disabledDir = workingDir .. "/scriptmgr/disabled"
+  local disabledScripts = {}
+  
+  local attr = lfs.attributes(disabledDir)
+  if attr and attr.mode == 'directory' then
+    for file in lfs.dir(disabledDir) do
+      if file ~= "." and file ~= ".." and (file:match("%.lua$") or file:match("%.luac$")) then
+        table.insert(disabledScripts, {
+          name = file:gsub("%.lua$", ""):gsub("%.luac$", ""),
+          filename = file,
+          path = disabledDir .. "/" .. file
+        })
+      end
+    end
+  end
+  
+  return disabledScripts
+end
+
+function unloadScriptByName(scriptPath)
+  local scripts = script.list()
+  
+  for i, scr in ipairs(scripts) do
+    if scr.path == scriptPath then
+      scr:unload()
+      return true, "Script unloaded: " .. scriptPath
+    end
+  end
+  
+  return false, "Script not found: " .. scriptPath
+end
+
+
+function getRealPath(relativePath)
+    if not relativePath or relativePath == "" then
+        return nil
+    end
+    
+    local basePath
+    local pathPart = relativePath
+    
+    if relativePath:find("^data/") then
+        local fullPath = getGameDirectory()
+        basePath = fullPath:match("^(.+)/[^/]+$") or fullPath
+        pathPart = relativePath:sub(5)
+    elseif relativePath:find("^media/") then
+        local fullPath = getWorkingDirectory()
+        basePath = fullPath:match("^(.+)/[^/]+$") or fullPath
+        pathPart = relativePath:sub(7)
+    else
+        return relativePath
+    end
+    
+    local pathComponents = {}
+    for component in pathPart:gmatch("([^/]+)") do
+        table.insert(pathComponents, component)
+    end
+    
+    local currentPath = basePath
+    for i, component in ipairs(pathComponents) do
+        local testPath = currentPath .. "/" .. component
+        if not doesDirectoryExist(testPath) then
+            if not createDirectory(testPath) then
+                return nil
+            end
+        end
+        
+        currentPath = testPath
+    end
+    
+    return currentPath
+end
+
+function unpack_archive(path_to_archive, output_path, progress_callback)
+    if not isAndroidEnvuLoaded or not isAndroidEnvLoaded then
+      progress_callback("error", processed, total, "Unpacking failed: lib.android doesn't exist")
+      return nil
+    end
+    local ZipFileCls        = env.FindClass("java/util/zip/ZipFile")
+    local ZipEntryCls       = env.FindClass("java/util/zip/ZipEntry")
+    local EnumerationCls    = env.FindClass("java/util/Enumeration")
+    local FileCls           = env.FindClass("java/io/File")
+    local FileOutputCls     = env.FindClass("java/io/FileOutputStream")
+    local InputStreamCls    = env.FindClass("java/io/InputStream")
+    local StringCls         = env.FindClass("java/lang/String")
+
+    local jArchivePath = env.NewStringUTF(path_to_archive)
+
+    local jOutPath = env.NewStringUTF(output_path)
+    local baseDir = envu.CallConstructor(FileCls, "(Ljava/lang/String;)V", jOutPath)
+
+    local zip = envu.CallConstructor(ZipFileCls,"(Ljava/lang/String;)V",jArchivePath)
+    local entries = envu.CallObjectMethod(zip, "entries", "()Ljava/util/Enumeration;")
+    local total = envu.CallIntMethod(zip, "size", "()I")
+    local processed = 0
+    local buffer = env.NewByteArray(64 * 1024)
+
+    while toboolean(envu.CallBooleanMethod(entries, "hasMoreElements", "()Z")) do
+        env.PushLocalFrame(32)
+        local entry = envu.CallObjectMethod(entries, "nextElement", "()Ljava/lang/Object;")
+        local nameObj = envu.CallObjectMethod(entry, "getName", "()Ljava/lang/String;")
+        local name = envu.FromJString(nameObj)
+
+        local jNamePath = env.NewStringUTF(name)
+        local outFile = envu.CallConstructor(FileCls, "(Ljava/io/File;Ljava/lang/String;)V", baseDir, jNamePath)
+
+        if toboolean(envu.CallBooleanMethod(entry, "isDirectory", "()Z")) then
+            envu.CallBooleanMethod(outFile, "mkdirs", "()Z")
+        else
+            local parent = envu.CallObjectMethod(outFile, "getParentFile", "()Ljava/io/File;")
+            if parent ~= nil then
+                envu.CallBooleanMethod(parent, "mkdirs", "()Z")
+                env.DeleteLocalRef(parent)
+            end
+
+            local input = envu.CallObjectMethod(zip, "getInputStream", "(Ljava/util/zip/ZipEntry;)Ljava/io/InputStream;", entry)
+            local output = envu.CallConstructor(FileOutputCls, "(Ljava/io/File;)V", outFile)
+
+            local unfreezeCounter = 0
+            while true do
+                local read = envu.CallIntMethod(input, "read", "([B)I", buffer)
+                if read <= 0 then break end
+                envu.CallVoidMethod(output, "write", "([BII)V", buffer, ffi.cast("jint", 0), ffi.cast("jint", read))
+            end
+
+            envu.CallVoidMethod(input, "close", "()V")
+            envu.CallVoidMethod(output, "close", "()V")
+            env.DeleteLocalRef(input)
+            env.DeleteLocalRef(output)
+        end
+
+        env.DeleteLocalRef(jNamePath)
+        env.DeleteLocalRef(outFile)
+        env.DeleteLocalRef(nameObj)
+        env.DeleteLocalRef(entry)
+        env.PopLocalFrame(nil)
+
+        processed = processed + 1
+        if not progress_callback("unpacking", processed, total, name) then break end
+    end
+
+    env.DeleteLocalRef(baseDir)
+    env.DeleteLocalRef(jOutPath)
+    env.DeleteLocalRef(entries)
+    env.DeleteLocalRef(buffer)
+    envu.CallVoidMethod(zip, "close", "()V")
+    env.DeleteLocalRef(zip)
+
+    progress_callback("finished", processed, total, "")
+end
+
+function isAllowedUrl(url)
+    for _, base in ipairs(wvWindow.windowUrls) do
+        if string.sub(url, 1, #base) == base then
+            return true
+        end
+    end
+    return false
 end
