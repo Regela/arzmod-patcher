@@ -54,10 +54,14 @@ jobs:
           LAUNCHER_VERSION=$(echo $VERSION_INFO | jq -r '.launcherVersion')
           LAUNCHER_VERSION_NAME=$(echo $VERSION_INFO | jq -r '.launcherVersionName')
 
-          if git tag -l | grep -qx "$LAUNCHER_VERSION"; then
+          CURRENT_VERSION=$LAUNCHER_VERSION
+          while git tag -l | grep -qx "$CURRENT_VERSION"; do
+            CURRENT_VERSION=$((CURRENT_VERSION + 1))
+          done
+          
+          if [ "$CURRENT_VERSION" != "$LAUNCHER_VERSION" ]; then
             ORIGINAL_LAUNCHER_VERSION="$LAUNCHER_VERSION"
-            INCREMENTED_LAUNCHER_VERSION=$((LAUNCHER_VERSION + 1))
-            LAUNCHER_VERSION="$INCREMENTED_LAUNCHER_VERSION"
+            LAUNCHER_VERSION="$CURRENT_VERSION"
             echo "increased=true" >> $GITHUB_OUTPUT
             echo "original_launcher_version=$ORIGINAL_LAUNCHER_VERSION" >> $GITHUB_OUTPUT
             echo "version_delta=$((LAUNCHER_VERSION - ORIGINAL_LAUNCHER_VERSION))" >> $GITHUB_OUTPUT
