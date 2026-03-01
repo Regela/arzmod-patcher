@@ -1,9 +1,9 @@
 {
-    "id": "modsstoreupd121",
-    "width": 1230,
-    "height": 540,
-    "title": "[Обновление Script Manager]\nУстановка скриптов и сборок прямо в игре! 👇",
-    "imageUrl": "https://raw.githubusercontent.com/idmkdev/arzmod-patcher/refs/heads/main/configs/images/modsstore.png",
-    "url": "https://t.me/CleoArizona/277",
+    "id": "addedvoiceupd",
+    "width": 500,
+    "height": 500,
+    "title": "[Исправление голосового чата]\nБыл исправлен голосовой чат и музыка одновременно с работой MonetLoader! 👇",
+    "imageUrl": "https://raw.githubusercontent.com/idmkdev/arzmod-patcher/refs/heads/main/configs/images/voice.png",
+    "url": "https://t.me/CleoArizona/282",
     "isActive": true
 }
