@@ -90,13 +90,117 @@ public class ApplicationStart {
     public void handleSampLink(Intent intent) {
         if (intent != null && intent.getData() != null) {
             String host = intent.getData().getHost();
-            String port = intent.getData().getPort() > 0 ? 
+            String port = intent.getData().getPort() > 0 ?
             String.valueOf(intent.getData().getPort()) : "7777";
             String nickname = intent.getData().getQueryParameter("nickname");
             String password = intent.getData().getQueryParameter("password");
-            
+
             Log.d("arzmod-app-module", "Connect to server: " + host + ":" + port + " | Name: " + nickname + " | Password: " + password);
             connectToServer(host, port, nickname, password);
+        }
+    }
+
+    public boolean handleLaunchIntent(Intent intent) {
+        if (intent == null) return false;
+
+        String ip = intent.getStringExtra("ip");
+        String port = intent.getStringExtra("port");
+        String nickname = intent.getStringExtra("nickname");
+        String password = intent.getStringExtra("password");
+        int serverId = intent.getIntExtra("server_id", -1);
+        int serverNumber = intent.getIntExtra("server_number", -1);
+        boolean runGame = intent.getBooleanExtra("run_game", false);
+
+        if (ip == null && intent.getData() != null) {
+            Uri data = intent.getData();
+            String scheme = data.getScheme();
+            if ("samp".equals(scheme) || "crmp".equals(scheme)) {
+                ip = data.getHost();
+                port = data.getPort() > 0 ? String.valueOf(data.getPort()) : null;
+                if (nickname == null) nickname = data.getQueryParameter("nickname");
+                if (password == null) password = data.getQueryParameter("password");
+                runGame = true;
+            }
+        }
+
+        if (ip == null && serverId < 0 && !runGame) return false;
+
+        if (port == null) port = "7777";
+
+        Log.d("arzmod-app-module", "Launch intent: ip=" + ip + " port=" + port
+            + " nickname=" + nickname + " serverId=" + serverId
+            + " serverNumber=" + serverNumber + " runGame=" + runGame);
+
+        if (serverId >= 0 && serverNumber >= 0) {
+            connectToOfficialServer(serverId, serverNumber, nickname, password);
+        } else if (ip != null) {
+            connectToServer(ip, port, nickname, password);
+        } else if (runGame) {
+            connectToServer("lastplayed", port, nickname, password);
+        }
+
+        return true;
+    }
+
+    public void connectToOfficialServer(int serverId, int serverNumber, String nickname, String password) {
+        long currentTime = SystemClock.elapsedRealtime();
+        if (currentTime - lastStartGameTime < MIN_START_INTERVAL) return;
+        lastStartGameTime = currentTime;
+
+        try {
+            Activity activity = AppContext.getGTASAActivity();
+            if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+                activity.finish();
+            }
+        } catch (Exception e) {
+            Log.e("arzmod-app-module", "Error finishing activity: " + e.getMessage());
+        }
+
+        try {
+            File externalDir = context.getExternalFilesDir(null);
+            File sampDir = new File(externalDir, "SAMP");
+            sampDir.mkdirs();
+
+            File settingsFile = new File(sampDir, "settings.json");
+            if (settingsFile.exists()) settingsFile.delete();
+            settingsFile.createNewFile();
+
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            boolean headMoving = prefs.getBoolean("head_moving", false);
+
+            JSONObject settings = new JSONObject();
+            JSONObject server = new JSONObject()
+                .put("id", serverId)
+                .put("serverid", serverNumber);
+            JSONObject client = new JSONObject()
+                .put("server", server);
+
+            JSONObject launcher = new JSONObject();
+            launcher.put("nickname", nickname != null ? nickname : "Player");
+            launcher.put("head_moving", headMoving);
+            try {
+                launcher.put("chat_pagesize", ConnectionHolder.INSTANCE.getSettingsData().getPageSize());
+                launcher.put("chat_fontsize", ConnectionHolder.INSTANCE.getSettingsData().getChatFontSize());
+                launcher.put("chat_print_timestamp", ConnectionHolder.INSTANCE.getSettingsData().getShowChatTime());
+                launcher.put("streamer_mode", ConnectionHolder.INSTANCE.getSettingsData().getStreamerMode());
+            } catch (Exception e) {
+                Log.w("arzmod-app-module", "ConnectionHolder not available, using defaults");
+            }
+
+            if (password != null && !password.isEmpty()) {
+                JSONObject test = new JSONObject()
+                    .put("pass", password);
+                client.put("test", test);
+            }
+
+            settings.put("client", client).put("launcher", launcher);
+
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(settingsFile))) {
+                writer.write(settings.toString());
+            }
+            context.startActivity(new Intent(context, GTASA.class));
+        } catch (Exception e) {
+            Log.e("arzmod-app-module", "Error connecting to official server", e);
         }
     }
 

@@ -36,7 +36,7 @@ def get_app_version():
 		with open(app_dir + "/apktool.yml", 'r', encoding='utf-8') as file:
 			content = file.read()
 
-			version_code_match = re.search(r"versionCode:\s*'(\d+)'", content)
+			version_code_match = re.search(r"versionCode:\s*'?(\d+)'?", content)
 			version_name_match = re.search(r"versionName:\s*([^']+)", content)
 
 			version_code = int(version_code_match.group(1)) if version_code_match else None
@@ -52,8 +52,8 @@ def update_app_version(new_version_code, new_version_name):
 		with open(app_dir + "/apktool.yml", 'r', encoding='utf-8') as file:
 			content = file.read()
 
-		content = re.sub(r"versionCode:\s*'(\d+)'", f"versionCode: '{new_version_code}'", content)
-		content = re.sub(r"versionName:\s*([^']+)", f"versionName: {new_version_name}", content)
+		content = re.sub(r"versionCode:\s*'?(\d+)'?", f"versionCode: '{new_version_code}'", content)
+		content = re.sub(r"versionName:\s*.+", f"versionName: {new_version_name}", content)
 
 		with open(app_dir + "/apktool.yml", 'w', encoding='utf-8') as file:
 			file.write(content)
@@ -943,7 +943,10 @@ def decompile_apk():
 def build_apk():
 	print("Building APK...")
 	search_and_replace(app_dir + "/AndroidManifest.xml", '<property android:name="android.adservices.AD_SERVICES_CONFIG" android:resource="@xml/ga_ad_services_config" />', "", True)
-	run_command(f"apktool b {name} --use-aapt2", cwd=working_dir)
+	try:
+		run_command(f"apktool b {name} --use-aapt2", cwd=working_dir)
+	except:
+		run_command(f"apktool b {name}", cwd=working_dir)
 
 def sign_apk(rename, keypass):
 	print("Aligning APK...")
@@ -1248,8 +1251,8 @@ def arzmod_patch():
 		""")
 		apply_function_to_files(search_and_replace, get_src_path(patchs_path, "/com/arizona/launcher/downloader"), r'invoke-virtual\s+\{([vp0-9]+),\s*([vp0-9]+)\},\s*Landroid/content/Context;->getExternalFilesDir\(Ljava/lang/String;\)Ljava/io/File;', r'invoke-static {\2}, Lcom/arizona/launcher/downloader/FilesChek;->getARZMODPatchedPath(Ljava/lang/String;)Ljava/io/File;', True, True)
 		search_and_replace(get_src_path(patchs_path, "/com/arizona/launcher/downloader/FilesChek.smali"), "const-string v0, \"/local_manifest.json\"", f"const-string v0, \"/data/{package_name}/files/local_manifest.json\"")
-		replace_code_between_lines(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench$IncomingHandler.smali"), ".method private static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;", ".end method", """
-			.method private static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;
+		replace_code_between_lines(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench$IncomingHandler.smali"), ".method static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;", ".end method", """
+			.method static final handleMessage$lambda$0(Lcom/arizona/launcher/MainEntrench;)Lkotlin/Unit;
 				.locals 1
 				invoke-static {p0}, Lcom/arizona/launcher/MainEntrench;->access$hideDialog(Lcom/arizona/launcher/MainEntrench;)V
 				const/4 v0, 0x0
@@ -1428,19 +1431,24 @@ def arzmod_patch():
         invoke-direct {v2, p0}, Lcom/arzmod/radare/ApplicationStart;-><init>(Landroid/content/Context;)V
         invoke-virtual {p0}, Landroid/app/Activity;->getIntent()Landroid/content/Intent;
         move-result-object v3
-        invoke-virtual {v2, v3}, Lcom/arzmod/radare/ApplicationStart;->handleSampLink(Landroid/content/Intent;)V
+        invoke-virtual {v2, v3}, Lcom/arzmod/radare/ApplicationStart;->handleLaunchIntent(Landroid/content/Intent;)Z
+        move-result v4
+        if-eqz v4, :no_launch_intent
+        return-void
+        :no_launch_intent
 	""")
 
 	append_to_file(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench.smali"), """
 		.method protected onNewIntent(Landroid/content/Intent;)V
-			.locals 2
+			.locals 3
 			.param p1, "intent"    # Landroid/content/Intent;
 
 			.prologue
 			invoke-super {p0, p1}, Landroid/app/Activity;->onNewIntent(Landroid/content/Intent;)V
 			new-instance v0, Lcom/arzmod/radare/ApplicationStart;
 			invoke-direct {v0, p0}, Lcom/arzmod/radare/ApplicationStart;-><init>(Landroid/content/Context;)V
-			invoke-virtual {v0, p1}, Lcom/arzmod/radare/ApplicationStart;->handleSampLink(Landroid/content/Intent;)V
+			invoke-virtual {v0, p1}, Lcom/arzmod/radare/ApplicationStart;->handleLaunchIntent(Landroid/content/Intent;)Z
+			move-result v1
 			return-void
 		.end method
 	""")
@@ -1493,7 +1501,7 @@ def arzmod_patch():
 	search_and_replace(get_src_path(patchs_path, "/com/arizona/game/GTASA.smali"), ".method private native InitSetting(", ".method public static native InitSetting(") 
 
 	# SETTINGS PATCH + classes_arzmod/src/com/arzmod/radare/SettingsPatch.java
-	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench.smali"), ".method private static final onCreate$lambda$4", ".locals", """
+	insert_smali_code_after_line(get_src_path(patchs_path, "/com/arizona/launcher/MainEntrench.smali"), ".method static final onCreate$lambda$5", ".locals", """
 		new-instance v0, Lcom/arzmod/radare/UpdateServicePatch;
 		invoke-direct {v0}, Lcom/arzmod/radare/UpdateServicePatch;-><init>()V
 		invoke-virtual {v0}, Lcom/arzmod/radare/UpdateServicePatch;->deleteMods()V
